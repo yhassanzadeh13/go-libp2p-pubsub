@@ -116,8 +116,10 @@ func (p *PubSub) handleNewPeer(ctx context.Context, pid peer.ID, outgoing <-chan
 	go p.handleSendingMessages(ctx, s, outgoing)
 	go p.handlePeerEOF(ctx, s)
 	select {
-	case p.newPeerStream <- s:
 	case <-ctx.Done():
+		return
+	default:
+		p.newPeerStreamSet.Add(s)
 	}
 }
 

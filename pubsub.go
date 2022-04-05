@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/libp2p/go-libp2p-pubsub/fifo"
 	pb "github.com/libp2p/go-libp2p-pubsub/pb"
 
 	"github.com/libp2p/go-libp2p-core/crypto"
@@ -100,7 +101,8 @@ type PubSub struct {
 	newPeersPend   map[peer.ID]struct{}
 
 	// a notification channel for new outoging peer streams
-	newPeerStream chan network.Stream
+	newPeerStream    <-chan interface{}
+	newPeerStreamSet *fifo.StreamSet
 
 	// a notification channel for errors opening new peer streams
 	newPeerError chan peer.ID
@@ -248,7 +250,6 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 		incoming:              make(chan *RPC, 32),
 		newPeers:              make(chan struct{}, 1),
 		newPeersPend:          make(map[peer.ID]struct{}),
-		newPeerStream:         make(chan network.Stream),
 		newPeerError:          make(chan peer.ID),
 		peerDead:              make(chan struct{}, 1),
 		peerDeadPend:          make(map[peer.ID]struct{}),
@@ -276,6 +277,10 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 		idGen:                 newMsgIdGenerator(),
 		counter:               uint64(time.Now().UnixNano()),
 	}
+
+	set, head := fifo.NewStreamFifoSet()
+	ps.newPeerStreamSet = set
+	ps.newPeerStream = head
 
 	for _, opt := range opts {
 		err := opt(ps)
@@ -526,7 +531,9 @@ func (p *PubSub) processLoop(ctx context.Context) {
 		case <-p.newPeers:
 			p.handlePendingPeers()
 
-		case s := <-p.newPeerStream:
+		case si := <-p.newPeerStream:
+			s := si.(network.Stream)
+			p.newPeerStreamSet.Check()
 			pid := s.Conn().RemotePeer()
 
 			ch, ok := p.peers[pid]
@@ -544,7 +551,7 @@ func (p *PubSub) processLoop(ctx context.Context) {
 				continue
 			}
 
-			p.rt.AddPeer(pid, s.Protocol())
+			p.rt.AddPeer(pid, s.(network.Stream).Protocol())
 
 		case pid := <-p.newPeerError:
 			delete(p.peers, pid)
