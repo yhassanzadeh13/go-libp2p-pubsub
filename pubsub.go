@@ -102,7 +102,7 @@ type PubSub struct {
 
 	// a notification channel for new outoging peer streams
 	newPeerStream    <-chan interface{}
-	newPeerStreamSet *fifo.StreamSet
+	newPeerStreamSet *fifo.Buffer
 
 	// a notification channel for errors opening new peer streams
 	newPeerError chan peer.ID
@@ -278,7 +278,7 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 		counter:               uint64(time.Now().UnixNano()),
 	}
 
-	set, head := fifo.NewStreamFifoSet()
+	set, head := fifo.NewBuffer()
 	ps.newPeerStreamSet = set
 	ps.newPeerStream = head
 
@@ -693,7 +693,7 @@ func (p *PubSub) handleDeadPeers() {
 			log.Debugf("peer declared dead but still connected; respawning writer: %s", pid)
 			messages := make(chan *RPC, p.peerOutboundQueueSize)
 			messages <- p.getHelloPacket()
-			go p.handleNewPeer(p.ctx, pid, messages)
+			p.handleNewPeer(p.ctx, pid, messages)
 			p.peers[pid] = messages
 			continue
 		}

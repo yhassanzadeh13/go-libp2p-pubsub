@@ -2,13 +2,13 @@ package fifo
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 )
 
-func TestStreamSet(t *testing.T) {
-	set, head := NewStreamFifoSet()
+// TestFifoBuffer puhes
+func TestFifoBuffer(t *testing.T) {
+	set, head := NewBuffer()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
@@ -18,13 +18,11 @@ func TestStreamSet(t *testing.T) {
 	go func() {
 		for i := 0; i < 10; i++ {
 			h := <-head
-			fmt.Println(h)
 			if h != i {
 				t.Errorf("fifo violation: expected: %d, got: %d", i, h)
 				return
 			}
-			set.check()
-
+			set.Check()
 		}
 
 		close(done)

@@ -4,15 +4,15 @@ import (
 	"sync"
 )
 
-type StreamSet struct {
+type Buffer struct {
 	mu   sync.Mutex
-	set  map[interface{}]struct{}
-	list []interface{}
-	head chan interface{}
+	set  map[interface{}]struct{} // for de-duplicating= entries.
+	list []interface{} // list of all stored items in buffer (fifo)
+	head chan interface{} // keeps head of the fifo list
 }
 
-func NewStreamFifoSet() (*StreamSet, <-chan interface{}) {
-	s := &StreamSet{
+func NewBuffer() (*Buffer, <-chan interface{}) {
+	s := &Buffer{
 		mu:   sync.Mutex{},
 		set:  make(map[interface{}]struct{}),
 		list: make([]interface{}, 0),
@@ -22,14 +22,18 @@ func NewStreamFifoSet() (*StreamSet, <-chan interface{}) {
 	return s, s.head
 }
 
-func (s *StreamSet) Check() {
+func (s *Buffer) Check() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.check()
 }
 
-func (s *StreamSet) check() {
+func (s *Buffer) Head() <-chan interface{}{
+	return s.head
+}
+
+func (s *Buffer) check() {
 	if len(s.list) == 0 {
 		return
 	}
@@ -46,7 +50,7 @@ func (s *StreamSet) check() {
 	}
 }
 
-func (s *StreamSet) Add(i interface{}) {
+func (s *Buffer) Add(i interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
