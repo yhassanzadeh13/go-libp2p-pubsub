@@ -1929,7 +1929,17 @@ func (gs *GossipSubRouter) WithDefaultTagTracer() Option {
 
 // SendControl dispatches the given set of control messages to the given peer.
 func (gs *GossipSubRouter) SendControl(p peer.ID, ctl *pb.ControlMessage) bool {
-	out := rpcWithControl(nil, ctl.Ihave, ctl.Iwant, ctl.Graft, ctl.Prune)
+	return gs.sendControl(nil, p, ctl)
+}
+
+// SendControlWithMessages dispatches the given set of pubsub and control messages to the given peer.
+func (gs *GossipSubRouter) SendControlWithMessages(msgs []*pb.Message, p peer.ID, ctl *pb.ControlMessage) bool {
+	return gs.sendControl(msgs, p, ctl)
+}
+
+// sendControl dispatches the given set of control messages to the given peer.
+func (gs *GossipSubRouter) sendControl(msgs []*pb.Message, p peer.ID, ctl *pb.ControlMessage) bool {
+	out := rpcWithControl(msgs, ctl.Ihave, ctl.Iwant, ctl.Graft, ctl.Prune)
 	return gs.sendRPC(p, out)
 }
 
