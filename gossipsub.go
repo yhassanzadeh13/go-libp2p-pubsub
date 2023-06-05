@@ -1928,8 +1928,8 @@ func (gs *GossipSubRouter) WithDefaultTagTracer() Option {
 }
 
 // SendControl dispatches the given set of control messages to the given peer.
-func (gs *GossipSubRouter) SendControl(p peer.ID, ctl *pb.ControlMessage) bool {
-	out := rpcWithControl(nil, ctl.Ihave, ctl.Iwant, ctl.Graft, ctl.Prune)
+func (gs *GossipSubRouter) SendControl(p peer.ID, ctl *pb.ControlMessage, msgs ...*pb.Message) bool {
+	out := rpcWithControl(msgs, ctl.Ihave, ctl.Iwant, ctl.Graft, ctl.Prune)
 	return gs.sendRPC(p, out)
 }
 
