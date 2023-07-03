@@ -11,6 +11,7 @@ import (
 	"time"
 
 	pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p-pubsub/timecache"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/discovery"
@@ -19,8 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	logging "github.com/ipfs/go-log"
-	"github.com/whyrusleeping/timecache"
+	logging "github.com/ipfs/go-log/v2"
 )
 
 // DefaultMaximumMessageSize is 1mb.
@@ -31,6 +31,10 @@ var (
 	// Use WithSeenMessagesTTL to configure this per pubsub instance, instead of overriding the global default.
 	TimeCacheDuration = 120 * time.Second
 
+	// TimeCacheStrategy specifies which type of lookup/cleanup strategy is used by the seen messages cache.
+	// Use WithSeenMessagesStrategy to configure this per pubsub instance, instead of overriding the global default.
+	TimeCacheStrategy = timecache.Strategy_FirstSeen
+
 	// ErrSubscriptionCancelled may be returned when a subscription Next() is called after the
 	// subscription has been cancelled.
 	ErrSubscriptionCancelled = errors.New("subscription cancelled")
@@ -38,7 +42,7 @@ var (
 
 var log = logging.Logger("pubsub")
 
-type ProtocolMatchFn = func(string) func(string) bool
+type ProtocolMatchFn = func(protocol.ID) func(protocol.ID) bool
 
 // PubSub is the implementation of the pubsub system.
 type PubSub struct {
@@ -148,9 +152,9 @@ type PubSub struct {
 	inboundStreamsMx sync.Mutex
 	inboundStreams   map[peer.ID]network.Stream
 
-	seenMessagesMx sync.Mutex
-	seenMessages   *timecache.TimeCache
-	seenMsgTTL     time.Duration
+	seenMessages    timecache.TimeCache
+	seenMsgTTL      time.Duration
+	seenMsgStrategy timecache.Strategy
 
 	// generator used to compute the ID for a message
 	idGen *msgIDGenerator
@@ -286,6 +290,7 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 		blacklist:             NewMapBlacklist(),
 		blacklistPeer:         make(chan peer.ID),
 		seenMsgTTL:            TimeCacheDuration,
+		seenMsgStrategy:       TimeCacheStrategy,
 		idGen:                 newMsgIdGenerator(),
 		counter:               uint64(time.Now().UnixNano()),
 	}
@@ -307,7 +312,7 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 		}
 	}
 
-	ps.seenMessages = timecache.NewTimeCache(ps.seenMsgTTL)
+	ps.seenMessages = timecache.NewTimeCacheWithStrategy(ps.seenMsgStrategy, ps.seenMsgTTL)
 
 	if err := ps.disc.Start(ps); err != nil {
 		return nil, err
@@ -317,7 +322,7 @@ func NewPubSub(ctx context.Context, h host.Host, rt PubSubRouter, opts ...Option
 
 	for _, id := range rt.Protocols() {
 		if ps.protoMatchFunc != nil {
-			h.SetStreamHandlerMatch(id, ps.protoMatchFunc(string(id)), ps.handleNewStream)
+			h.SetStreamHandlerMatch(id, ps.protoMatchFunc(id), ps.handleNewStream)
 		} else {
 			h.SetStreamHandler(id, ps.handleNewStream)
 		}
@@ -533,6 +538,14 @@ func WithSeenMessagesTTL(ttl time.Duration) Option {
 	}
 }
 
+// WithSeenMessagesStrategy configures which type of lookup/cleanup strategy is used by the seen messages cache
+func WithSeenMessagesStrategy(strategy timecache.Strategy) Option {
+	return func(ps *PubSub) error {
+		ps.seenMsgStrategy = strategy
+		return nil
+	}
+}
+
 // WithAppSpecificRpcInspector sets a hook that inspect incomings RPCs prior to
 // processing them.  The inspector is invoked on an accepted RPC just before it
 // is handled.  If inspector's error is nil, the RPC is handled. Otherwise, it
@@ -553,6 +566,7 @@ func (p *PubSub) processLoop(ctx context.Context) {
 		}
 		p.peers = nil
 		p.topics = nil
+		p.seenMessages.Done()
 	}()
 
 	for {
@@ -971,22 +985,13 @@ func (p *PubSub) notifySubs(msg *Message) {
 
 // seenMessage returns whether we already saw this message before
 func (p *PubSub) seenMessage(id string) bool {
-	p.seenMessagesMx.Lock()
-	defer p.seenMessagesMx.Unlock()
 	return p.seenMessages.Has(id)
 }
 
 // markSeen marks a message as seen such that seenMessage returns `true' for the given id
 // returns true if the message was freshly marked
 func (p *PubSub) markSeen(id string) bool {
-	p.seenMessagesMx.Lock()
-	defer p.seenMessagesMx.Unlock()
-	if p.seenMessages.Has(id) {
-		return false
-	}
-
-	p.seenMessages.Add(id)
-	return true
+	return p.seenMessages.Add(id)
 }
 
 // subscribedToMessage returns whether we are subscribed to one of the topics
