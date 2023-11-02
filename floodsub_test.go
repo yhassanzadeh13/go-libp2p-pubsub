@@ -115,6 +115,18 @@ func getPubsubs(ctx context.Context, hs []host.Host, opts ...Option) []*PubSub {
 	return psubs
 }
 
+func getPubsubsWithOptionC(ctx context.Context, hs []host.Host, cons ...func(int) Option) []*PubSub {
+	var psubs []*PubSub
+	for _, h := range hs {
+		var opts []Option
+		for i, c := range cons {
+			opts = append(opts, c(i))
+		}
+		psubs = append(psubs, getPubsub(ctx, h, opts...))
+	}
+	return psubs
+}
+
 func assertReceive(t *testing.T, ch *Subscription, exp []byte) {
 	select {
 	case msg := <-ch.ch:
@@ -175,7 +187,6 @@ func TestBasicFloodsub(t *testing.T) {
 			}
 		}
 	}
-
 }
 
 func TestMultihops(t *testing.T) {
@@ -1229,7 +1240,7 @@ func TestDedupInboundStreams(t *testing.T) {
 	}
 
 	// Connect the two hosts together
-	connect(t, h2, h1)
+	connect(t, h1, h2)
 
 	// open a few streams and make sure all but the last one get reset
 	s1, err := h2.NewStream(ctx, h1.ID(), FloodSubID)
